@@ -1,38 +1,71 @@
 #!/usr/bin/env python3
-'''A module with tools for request caching and tracking.
-'''
-import redis
+
+"""
+This module provides a function for retrieving the HTML content of a URL
+and caching the result.
+"""
+
 import requests
+import time
 from functools import wraps
-from typing import Callable
+
+CACHE_EXPIRATION = 10  # seconds
 
 
-redis_store = redis.Redis()
-'''The module-level Redis instance.
-'''
+def cache_expiring(seconds: int):
+    """
+    Decorator that caches the result of a function with an expiration time.
+
+    Args:
+        seconds (int): The expiration time in seconds.
+
+    Returns:
+        function: The decorated function.
+    """
+    def decorator(func):
+        cache = {}
+
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            """
+            Wrapper function that caches the result of the decorated function.
+
+            Args:
+                *args: Variable length argument list.
+                **kwargs: Arbitrary keyword arguments.
+
+            Returns:
+                The result of the decorated function.
+            """
+            key = f"count:{func.__name__}:{args}"
+            if key in cache:
+                result, timestamp = cache[key]
+                if time.time() - timestamp < seconds:
+                    return result
+
+            result = func(*args, **kwargs)
+            cache[key] = (result, time.time())
+            return result
+
+        return wrapper
+
+    return decorator
 
 
-def data_cacher(method: Callable) -> Callable:
-    '''Caches the output of fetched data.
-    '''
-    @wraps(method)
-    def invoker(url) -> str:
-        '''The wrapper function for caching the output.
-        '''
-        redis_store.incr(f'count:{url}')
-        result = redis_store.get(f'result:{url}')
-        if result:
-            return result.decode('utf-8')
-        result = method(url)
-        redis_store.set(f'count:{url}', 0)
-        redis_store.setex(f'result:{url}', 10, result)
-        return result
-    return invoker
-
-
-@data_cacher
+@cache_expiring(CACHE_EXPIRATION)
 def get_page(url: str) -> str:
-    '''Returns the content of a URL after caching the request's response,
-    and tracking the request.
-    '''
-    return requests.get(url).text
+    """
+    Retrieve the HTML content of a given URL.
+
+    Args:
+        url (str): The URL to fetch.
+
+    Returns:
+        str: The HTML content of the URL.
+    """
+    response = requests.get(url)
+    return response.text
+
+
+if __name__ == "__main__":
+    print(get_page("http://slowwly.robertomurray.co.uk"))
